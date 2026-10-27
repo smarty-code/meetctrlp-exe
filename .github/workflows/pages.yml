@@ -1,0 +1,52 @@
+name: Publish download site
+
+# Copies the newest installers from Releases to GitHub Pages. Release download
+# links redirect to a short-lived signed URL; Pages serves each installer
+# directly at https://smarty-code.github.io/meetctrlp-exe/<version>/<file>,
+# which is the link the Microsoft Store needs.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Collect the newest installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p site
+          touch site/.nojekyll
+          # The three newest releases stay up, so a version under Store review
+          # keeps working after the next one ships.
+          for tag in $(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 3 --json tagName -q '.[].tagName'); do
+            version="${tag#v}"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern "CtrlP-Print-Shop-Setup-$version.exe" --dir "site/$version"
+          done
+          find site -type f -printf '%s\t%p\n'
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
